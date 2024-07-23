@@ -51,3 +51,4 @@ chmod +x ./mongo_replicate_db.sh
 ```
 alias mongo_replicate="/opt/mongo_replicate_db.sh"
 ```
+![image](https://imgur.com/7EdmaY8.png)
