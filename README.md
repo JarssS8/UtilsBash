@@ -51,3 +51,22 @@ chmod +x ./mongo_replicate_db.sh
 ```
 alias mongo_replicate="/opt/mongo_replicate_db.sh"
 ```
+
+## Install Certs Java
+- Only allows asdf for the moment.
+- Compiles InstallCerts.java, executes and move the jssecacerts to the correct path following:
+
+```
+ asdf current
+```
+### Additional Notes
+- To use this script only add the URL after the command
+
+```
+./ssl_install_certs.sh example.github.dev
+```
+- Consider create an alias to make you easy use this command
+
+```
+ssl_cert='cd /opt && ./ssl_install_certs.sh'
+```
