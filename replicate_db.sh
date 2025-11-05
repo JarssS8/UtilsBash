@@ -212,30 +212,43 @@ while (("$#")); do
 done
 
 check_variables() {
-    if [ -z "$1" ]; then
-        echo -e "${RED}${CROSS_MARK} Please set the required variable into the script. Exiting.${NC}"
+    local var_name="$1"
+    local var_value="$2"
+    if [ -z "$var_value" ]; then
+        echo -e "${RED}${CROSS_MARK} Please set the required variable '$var_name' into the script. Exiting.${NC}"
         exit 1
     fi
 }
 
 # Validate variables based on database type
 if [ "$DB_TYPE" = "mongo" ]; then
-    check_variables "$SOURCE_DB_STRING"
-    check_variables "$SOURCE_DATABASE"
-    check_variables "$DEST_DB_STRING"
-    check_variables "$DEST_DATABASE"
+    check_variables "SOURCE_DB_STRING" "$SOURCE_DB_STRING"
+    check_variables "SOURCE_DATABASE" "$SOURCE_DATABASE"
+    check_variables "DEST_DB_STRING" "$DEST_DB_STRING"
+    
+    # If DEST_DATABASE is empty, use SOURCE_DATABASE
+    if [ -z "$DEST_DATABASE" ]; then
+        DEST_DATABASE="$SOURCE_DATABASE"
+        echo -e "${GREEN}No destination database specified. Using source database name: '$DEST_DATABASE'${NC}"
+    fi
+    
 elif [ "$DB_TYPE" = "mysql" ]; then
     # For listing databases, we only need source connection
     if [ "$LIST_DATABASES" = true ]; then
-        check_variables "$MYSQL_SOURCE_HOST"
-        check_variables "$MYSQL_SOURCE_USER"
+        check_variables "MYSQL_SOURCE_HOST" "$MYSQL_SOURCE_HOST"
+        check_variables "MYSQL_SOURCE_USER" "$MYSQL_SOURCE_USER"
     else
-        check_variables "$MYSQL_SOURCE_HOST"
-        check_variables "$MYSQL_SOURCE_USER"
-        check_variables "$SOURCE_DATABASE"
-        check_variables "$MYSQL_DEST_HOST"
-        check_variables "$MYSQL_DEST_USER"
-        check_variables "$DEST_DATABASE"
+        check_variables "MYSQL_SOURCE_HOST" "$MYSQL_SOURCE_HOST"
+        check_variables "MYSQL_SOURCE_USER" "$MYSQL_SOURCE_USER"
+        check_variables "SOURCE_DATABASE" "$SOURCE_DATABASE"
+        check_variables "MYSQL_DEST_HOST" "$MYSQL_DEST_HOST"
+        check_variables "MYSQL_DEST_USER" "$MYSQL_DEST_USER"
+        
+        # If DEST_DATABASE is empty, use SOURCE_DATABASE
+        if [ -z "$DEST_DATABASE" ]; then
+            DEST_DATABASE="$SOURCE_DATABASE"
+            echo -e "${GREEN}No destination database specified. Using source database name: '$DEST_DATABASE'${NC}"
+        fi
     fi
 fi
 
