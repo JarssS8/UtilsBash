@@ -1,0 +1,47 @@
+# 🔐 Checklist antes de darle a “Run”
+    # 1.	En Bitbucket → Repository settings → Pipelines → SSH keys
+    # •	Añade la private key
+    # •	Marca Write access
+    # 2.	En GitHub
+    # •	Añade la public key como Deploy Key (con write)
+    # 3.	Sustituye:
+    # •	TU_USUARIO por tu usuario o la organización en GitHub
+    # •	TU_REPO por el nombre del repositorio en GitHub
+
+image: alpine:latest
+
+definitions:
+  steps:
+    - step: &push-current-branch
+        name: Push current branch to GitHub
+        script:
+          - apk add --no-cache git openssh
+          - git config --global user.name "bitbucket-pipeline"
+          - git config --global user.email "pipeline@bitbucket.org"
+
+          # SSH setup
+          - mkdir -p ~/.ssh
+          - ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+          # Clone repo
+          - git clone $BITBUCKET_GIT_SSH_ORIGIN repo
+          - cd repo
+
+          # Checkout the branch that triggered the pipeline
+          - git checkout $BITBUCKET_BRANCH
+
+          # Push ONLY this branch to GitHub
+          - git push git@github.com:TU_USUARIO/TU_REPO.git $BITBUCKET_BRANCH
+
+pipelines:
+  branches:
+    main:
+      - step: *push-current-branch
+    develop:
+      - step: *push-current-branch
+    # "feature/*":
+    #   - step: *push-current-branch
+    # "bugfix/*":
+    #   - step: *push-current-branch
+    # "hotfix/*":
+    #   - step: *push-current-branch
