@@ -241,6 +241,16 @@ def find_and_select_in_current_page(driver: webdriver.Chrome, dev_eui: str) -> b
         return False
 
 
+def get_last_seen_in_current_page(driver: webdriver.Chrome, dev_eui: str) -> str | None:
+    """Devuelve el texto de la columna 'Last seen' para el dispositivo en la página actual."""
+    try:
+        row = driver.find_element(By.XPATH, f"//tr[@data-row-key='{dev_eui}']")
+        last_seen_cell = row.find_element(By.XPATH, ".//td[2]")
+        return last_seen_cell.text.strip()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def has_next_page(driver: webdriver.Chrome) -> bool:
     """Devuelve True si el botón 'siguiente página' existe y no está deshabilitado."""
     try:
@@ -440,6 +450,72 @@ def run_create(driver: webdriver.Chrome, devices: list[Device]) -> None:
             print(f"  - {d.name} ({d.dev_eui}): {err}")
 
 
+def run_set_keys(driver: webdriver.Chrome, devices: list[Device]) -> None:
+    """Acción: configurar device keys para todos los dispositivos."""
+    app_key = os.getenv("CHIRPSTACK_APP_KEY")
+    if not app_key:
+        raise ValueError("CHIRPSTACK_APP_KEY no está configurada en el archivo .env")
+
+    print("Haciendo login en ChirpStack...")
+    login(driver)
+    print("Login correcto\n")
+
+    failed: list[tuple[Device, str]] = []
+
+    for device in tqdm(devices, desc="Configurando keys", unit="disp"):
+        try:
+            keys_url = f"{CHIRPSTACK_URL}/#/tenants/{CHIRPSTACK_TENANT_ID}/applications/{CHIRPSTACK_APP_ID}/devices/{device.dev_eui}/keys"
+            driver.get(keys_url)
+            wait = WebDriverWait(driver, 20)
+            
+            # Buscamos el input de la key (nwkKey o appKey)
+            input_el = first_visible(
+                wait,
+                [
+                    "input#nwkKeyRender",
+                    "input#nwkKey",
+                    "input#appKey",
+                    "input[name='nwkKey']",
+                    "input[name='appKey']",
+                    "input.ant-input",
+                ]
+            )
+            
+            input_el.click()
+            input_el.clear()
+            # Aseguramos el borrado por si clear() falla en React
+            input_el.send_keys(Keys.COMMAND + "a")
+            input_el.send_keys(Keys.CONTROL + "a")
+            input_el.send_keys(Keys.BACKSPACE)
+            input_el.send_keys(app_key)
+            
+            # Clic en Submit
+            submit_btn = wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and contains(@class, 'ant-btn-primary')]"))
+            )
+            submit_btn.click()
+            
+            time.sleep(1)
+        except Exception as exc:
+            failed.append((device, str(exc)))
+            screenshot_path = Path(__file__).parent / f"error_keys_{device.dev_eui}.png"
+            try:
+                driver.save_screenshot(str(screenshot_path))
+                tqdm.write(f"  [screenshot] Guardado en {screenshot_path}")
+            except Exception:
+                pass
+            tqdm.write(f"✗ ERROR -> {device.name} ({device.dev_eui}) :: {exc}")
+            time.sleep(1)
+
+    print("\n=== Resumen Configuración de Keys ===")
+    print(f"Total: {len(devices)}")
+    print(f"Fallidos: {len(failed)}")
+    if failed:
+        print("Detalle de fallos:")
+        for d, err in failed:
+            print(f"  - {d.name} ({d.dev_eui}): {err}")
+
+
 def add_to_multicast_group(driver: webdriver.Chrome, group_name: str, timeout: int = 20) -> None:
     """Abre el menú 'Selected devices', elige 'Add to multicast-group' y confirma el modal."""
     # Screenshot de diagnóstico para ver el estado actual de la UI.
@@ -536,6 +612,9 @@ def run_status(driver: webdriver.Chrome, devices: list[Device]) -> None:
     pending: dict[str, Device] = {d.dev_eui: d for d in devices}
     selected_total: list[Device] = []
     not_found: list[Device] = []
+    with_last_seen_count = 0
+    connected_devices: list[tuple[Device, str]] = []
+    never_devices: list[Device] = []
 
     with tqdm(total=len(devices), desc="Verificando estado", unit="disp") as pbar:
         while pending:
@@ -545,6 +624,12 @@ def run_status(driver: webdriver.Chrome, devices: list[Device]) -> None:
                 if find_and_select_in_current_page(driver, dev_eui):
                     selected_total.append(device)
                     found_on_page.append(dev_eui)
+                    last_seen = get_last_seen_in_current_page(driver, dev_eui)
+                    if last_seen and last_seen.lower() != "never":
+                        with_last_seen_count += 1
+                        connected_devices.append((device, last_seen))
+                    else:
+                        never_devices.append(device)
                     pbar.update(1)
 
             # Eliminamos los encontrados del conjunto pendiente
@@ -563,7 +648,20 @@ def run_status(driver: webdriver.Chrome, devices: list[Device]) -> None:
     print(f"\n=== Resumen ===")
     print(f"Total: {len(devices)}")
     print(f"Seleccionados: {len(selected_total)}")
+    print(f"Con Last seen (distinto de 'Never'): {with_last_seen_count}")
+    print(f"Con Last seen = 'Never': {len(never_devices)}")
     print(f"No encontrados: {len(not_found)}")
+
+    if connected_devices:
+        print("\nDispositivos que conectaron (Last seen con fecha):")
+        for d, seen_at in connected_devices:
+            print(f"  - {d.name} ({d.dev_eui}) -> {seen_at}")
+
+    if never_devices:
+        print("\nDispositivos con Last seen = 'Never':")
+        for d in never_devices:
+            print(f"  - {d.name} ({d.dev_eui})")
+
     if not_found:
         print("Dispositivos no encontrados en ninguna página:")
         for d in not_found:
@@ -673,9 +771,10 @@ def ask_action() -> str:
     print("  2) Seleccionar dispositivos para grupo multicast")
     print("  3) Alta de collares en Pappstor Admin")
     print("  4) Ver estado (sólo seleccionar, no hacer nada más)")
+    print("  5) Configurar Device Keys")
     print()
     while True:
-        choice = input("Elige una opción (1/2/3/4): ").strip()
+        choice = input("Elige una opción (1/2/3/4/5): ").strip()
         if choice == "1":
             return "create"
         if choice == "2":
@@ -684,7 +783,9 @@ def ask_action() -> str:
             return "pappstor"
         if choice == "4":
             return "status"
-        print("Opción no válida. Introduce 1, 2, 3 o 4.")
+        if choice == "5":
+            return "keys"
+        print("Opción no válida. Introduce 1, 2, 3, 4 o 5.")
 
 
 def parse_args() -> argparse.Namespace:
@@ -697,9 +798,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--action",
-        choices=["create", "multicast", "pappstor", "status"],
+        choices=["create", "multicast", "pappstor", "status", "keys"],
         default=None,
-        help="Acción a realizar: 'create', 'multicast', 'pappstor' o 'status'",
+        help="Acción a realizar: 'create', 'multicast', 'pappstor', 'status' o 'keys'",
     )
     parser.add_argument(
         "multicast_group",
@@ -763,6 +864,8 @@ def main() -> None:
         print()
     elif action == "status":
         print("Acción: Ver estado (sólo seleccionar)\n")
+    elif action == "keys":
+        print("Acción: Configurar Device Keys\n")
 
     driver = build_driver(headless=not args.wb)
     try:
@@ -777,6 +880,9 @@ def main() -> None:
             driver.quit()
         elif action == "status":
             run_status(driver, devices)
+            driver.quit()
+        elif action == "keys":
+            run_set_keys(driver, devices)
             driver.quit()
     except Exception as exc:
         print(f"\nError inesperado: {exc}")
