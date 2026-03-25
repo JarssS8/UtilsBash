@@ -336,6 +336,15 @@ def run_pappstor(driver: webdriver.Chrome, devices: list[Device], raza: str, com
             serie_input.clear()
             serie_input.send_keys(device.dev_eui)
 
+            # Llenar el campo 'name' (nombre del collar)
+            name_input = wait.until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//input[@formcontrolname='name']")
+                )
+            )
+            name_input.clear()
+            name_input.send_keys(device.name)
+
             # Función helper para seleccionar en dropdowns de Angular Material
             def select_material_dropdown(formcontrolname: str, option_text: str):
                 # 1. Encontrar el mat-select y hacer click para abrir las opciones
